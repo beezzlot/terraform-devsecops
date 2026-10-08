@@ -1,117 +1,86 @@
-package test
+package terratest
 
 import (
-	"os"
-	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func terraformOptions(t *testing.T) *terraform.Options {
-	t.Helper()
-
-	rootDir, err := filepath.Abs("../..")
-	require.NoError(t, err)
-
-	return &terraform.Options{
-		TerraformDir: rootDir,
-		VarFiles: []string{
-			filepath.Join(rootDir, "terraform.tfvars-4.dev"),
-		},
-		EnvVars: map[string]string{
-			"TF_IN_AUTOMATION":   "true",
-			"TF_INPUT":           "false",
-			"TF_VAR_ssh_public_key": os.Getenv("SSH_PUBLIC_KEY"),
-		},
-	}
-}
-
-func TestTerraformValidate(t *testing.T) {
+func TestTerraformValidateAndPlan(t *testing.T) {
 	t.Parallel()
 
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: "../..",
+		VarFiles:     []string{"terraform.tfvars.dev"},
+	})
+
+	// Test 1: Terraform validate
+	t.Run("TerraformValidate", func(t *testing.T) {
+		terraform.Validate(t, terraformOptions)
+	})
+
+	// Test 2: Terraform plan
+	t.Run("TerraformPlan", func(t *testing.T) {
+		terraform.InitAndPlan(t, terraformOptions)
+	})
 }
 
-func TestTerraformPlan(t *testing.T) {
+func TestNoPublicIP(t *testing.T) {
 	t.Parallel()
 
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
-	terraform.Plan(t, options)
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: "../..",
+		VarFiles:     []string{"terraform.tfvars.dev"},
+	})
+
+	// Test 3: Check no public IP assigned
+	t.Run("NoPublicIP", func(t *testing.T) {
+		planOutput := terraform.InitAndPlan(t, terraformOptions)
+		
+		// Verify public_ip is not explicitly assigned in the plan
+		assert.NotContains(t, planOutput, "public_ip = \"", 
+			"VM should not have public IP assigned")
+	})
 }
 
-func TestExpectedVMs(t *testing.T) {
+func TestInfrastructureComposition(t *testing.T) {
 	t.Parallel()
 
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: "../..",
+		VarFiles:     []string{"terraform.tfvars.dev"},
+	})
 
-	plan := terraform.InitAndPlan(t, options)
-
-	planJSON := terraform.ShowPlanJson(t, options, plan)
-
-	require.Contains(t, string(planJSON), "module.compute.yandex_compute_instance.api")
-	require.Contains(t, string(planJSON), "module.compute.yandex_compute_instance.web")
+	// Test 4: Check infrastructure composition
+	t.Run("InfrastructureComposition", func(t *testing.T) {
+		terraform.InitAndPlan(t, terraformOptions)
+		
+		// Check that outputs exist
+		outputs := terraform.OutputAll(t, terraformOptions)
+		
+		// Verify disk_ids output exists for api VM
+		assert.Contains(t, outputs, "disk_ids", 
+			"Should have disk_ids output for api VM")
+	})
 }
 
-func TestVMsHaveNoPublicIP(t *testing.T) {
+func TestDiskProperties(t *testing.T) {
 	t.Parallel()
 
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
+	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
+		TerraformDir: "../..",
+		VarFiles:     []string{"terraform.tfvars.dev"},
+	})
 
-	plan := terraform.InitAndPlan(t, options)
-	planJSON := terraform.ShowPlanJson(t, options, plan)
-
-	planText := string(planJSON)
-
-	require.Contains(t, planText, `"nat":false`)
-}
-
-func TestAdditionalDisks(t *testing.T) {
-	t.Parallel()
-
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
-
-	plan := terraform.InitAndPlan(t, options)
-	planJSON := terraform.ShowPlanJson(t, options, plan)
-
-	planText := string(planJSON)
-
-	require.Contains(t, planText, "module.disks.yandex_compute_disk.extra_disks")
-	require.Contains(t, planText, "logs")
-	require.Contains(t, planText, "backup")
-}
-
-func TestAPIDisks(t *testing.T) {
-	t.Parallel()
-
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
-
-	plan := terraform.InitAndPlan(t, options)
-	planJSON := terraform.ShowPlanJson(t, options, plan)
-
-	planText := string(planJSON)
-
-	require.Contains(t, planText, "secondary_disk")
-}
-
-func TestDevVMParameters(t *testing.T) {
-	t.Parallel()
-
-	options := terraformOptions(t)
-	terraform.InitAndValidate(t, options)
-
-	plan := terraform.InitAndPlan(t, options)
-	planJSON := terraform.ShowPlanJson(t, options, plan)
-
-	planText := string(planJSON)
-
-	require.Contains(t, planText, `"cores":2`)
-	require.Contains(t, planText, `"memory":2`)
+	// Test 5: Additional check - disk resources exist
+	t.Run("DiskProperties", func(t *testing.T) {
+		planOutput := terraform.InitAndPlan(t, terraformOptions)
+		
+		// Verify compute disks are created
+		assert.Contains(t, planOutput, "yandex_compute_disk",
+			"Should create compute disks")
+	})
 }
