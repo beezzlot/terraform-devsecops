@@ -1,0 +1,20 @@
+ssh_public_key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEmliO404UyyqzCCobhcwO4v3i7Y2o3aQxx4gW+eQFqD yandex-cloud"
+
+extra_disk_names = ["logs", "backup", "metrics"]
+extra_disk_type  = "network-ssd"
+extra_disk_size  = 30
+
+vm_specification = {
+  web = {
+    cores     = 2
+    memory    = 4
+    disk_size = 20
+    boot_disk = "fd845dr9j4h2aaq1m6ko"
+  }
+  api = {
+    cores     = 2
+    memory    = 4
+    disk_size = 20
+    boot_disk = "fd845dr9j4h2aaq1m6ko"
+  }
+}
