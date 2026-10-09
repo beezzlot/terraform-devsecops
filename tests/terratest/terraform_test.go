@@ -1,3 +1,6 @@
+// terraform_test.go реализован приемущественно с помощью ИИ, опыта программирования на GO хватило не намного...
+// В этом честно признаюсь!!!
+
 package test
 
 import (
@@ -109,6 +112,6 @@ func TestTerraformDevInfrastructure(t *testing.T) {
 			plan,
 			`platform_id               = "standard-v3"`,
 			"VM должны использовать платформу standard-v3",
-		})
+		)
 	})
 }
