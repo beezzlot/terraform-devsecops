@@ -1,86 +1,79 @@
-package terratest
+package test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/gruntwork-io/terratest/modules/terraform"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-func TestTerraformValidateAndPlan(t *testing.T) {
+func TestTerraformDevInfrastructure(t *testing.T) {
 	t.Parallel()
 
-	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "../..",
-		VarFiles:     []string{"terraform.tfvars.dev"},
-	})
+	terraformDir := "../.."
 
-	// Test 1: Terraform validate
+	tfOptions := &terraform.Options{
+		TerraformDir: terraformDir,
+		VarFiles: []string{
+			"terraform.tfvars.dev",
+		},
+		NoColor: true,
+	}
+
+	defer terraform.Destroy(t, tfOptions)
+
 	t.Run("TerraformValidate", func(t *testing.T) {
-		terraform.Validate(t, terraformOptions)
+		terraform.Init(t, tfOptions)
+		terraform.Validate(t, tfOptions)
 	})
 
-	// Test 2: Terraform plan
 	t.Run("TerraformPlan", func(t *testing.T) {
-		terraform.InitAndPlan(t, terraformOptions)
-	})
-}
+		terraform.Init(t, tfOptions)
+		plan := terraform.Plan(t, tfOptions)
 
-func TestNoPublicIP(t *testing.T) {
-	t.Parallel()
-
-	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "../..",
-		VarFiles:     []string{"terraform.tfvars.dev"},
+		assert.NotEmpty(t, plan, "Terraform plan не должен быть пустым")
 	})
 
-	// Test 3: Check no public IP assigned
-	t.Run("NoPublicIP", func(t *testing.T) {
-		planOutput := terraform.InitAndPlan(t, terraformOptions)
-		
-		// Verify public_ip is not explicitly assigned in the plan
-		assert.NotContains(t, planOutput, "public_ip = \"", 
-			"VM should not have public IP assigned")
-	})
-}
+	t.Run("ExpectedVMs", func(t *testing.T) {
+		terraform.InitAndPlan(t, tfOptions)
 
-func TestInfrastructureComposition(t *testing.T) {
-	t.Parallel()
+		webName := terraform.Output(t, tfOptions, "web_instance_name")
+		apiName := terraform.Output(t, tfOptions, "api_instance_name")
 
-	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "../..",
-		VarFiles:     []string{"terraform.tfvars.dev"},
+		assert.NotEmpty(t, webName, "Должна существовать web VM")
+		assert.NotEmpty(t, apiName, "Должна существовать api VM")
+		assert.NotEqual(t, webName, apiName, "web и api должны быть разными VM")
 	})
 
-	// Test 4: Check infrastructure composition
-	t.Run("InfrastructureComposition", func(t *testing.T) {
-		terraform.InitAndPlan(t, terraformOptions)
-		
-		// Check that outputs exist
-		outputs := terraform.OutputAll(t, terraformOptions)
-		
-		// Verify disk_ids output exists for api VM
-		assert.Contains(t, outputs, "disk_ids", 
-			"Should have disk_ids output for api VM")
-	})
-}
+	t.Run("NoPublicIPs", func(t *testing.T) {
+		terraform.InitAndPlan(t, tfOptions)
 
-func TestDiskProperties(t *testing.T) {
-	t.Parallel()
+		webPublicIP := terraform.Output(t, tfOptions, "web_public_ip")
+		apiPublicIP := terraform.Output(t, tfOptions, "api_public_ip")
 
-	terraformOptions := terraform.WithDefaultRetryableErrors(t, &terraform.Options{
-		TerraformDir: "../..",
-		VarFiles:     []string{"terraform.tfvars.dev"},
+		assert.Empty(t, webPublicIP, "web VM не должна иметь публичный IP")
+		assert.Empty(t, apiPublicIP, "api VM не должна иметь публичный IP")
 	})
 
-	// Test 5: Additional check - disk resources exist
-	t.Run("DiskProperties", func(t *testing.T) {
-		planOutput := terraform.InitAndPlan(t, terraformOptions)
-		
-		// Verify compute disks are created
-		assert.Contains(t, planOutput, "yandex_compute_disk",
-			"Should create compute disks")
+	t.Run("APIDisks", func(t *testing.T) {
+		terraform.InitAndPlan(t, tfOptions)
+
+		apiDiskIDs := terraform.OutputList(t, tfOptions, "api_disk_ids")
+
+		assert.NotEmpty(t, apiDiskIDs, "У api должны быть дополнительные диски")
+		assert.GreaterOrEqual(
+			t,
+			len(apiDiskIDs),
+			2,
+			"У api должно быть минимум два дополнительных диска",
+		)
+	})
+
+	t.Run("DevEnvironmentParameters", func(t *testing.T) {
+		terraform.InitAndPlan(t, tfOptions)
+
+		environment := terraform.Output(t, tfOptions, "environment")
+
+		assert.Equal(t, "dev", environment, "Должно использоваться окружение dev")
 	})
 }
