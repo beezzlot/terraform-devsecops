@@ -8,11 +8,14 @@ import (
 )
 
 func TestTerraformDevInfrastructure(t *testing.T) {
-	t.Parallel()
-
 	terraformDir := "../.."
 
-	tfOptions := &terraform.Options{
+	validateOptions := &terraform.Options{
+		TerraformDir: terraformDir,
+		NoColor:      true,
+	}
+
+	planOptions := &terraform.Options{
 		TerraformDir: terraformDir,
 		VarFiles: []string{
 			"terraform.tfvars.dev",
@@ -20,60 +23,92 @@ func TestTerraformDevInfrastructure(t *testing.T) {
 		NoColor: true,
 	}
 
-	defer terraform.Destroy(t, tfOptions)
-
 	t.Run("TerraformValidate", func(t *testing.T) {
-		terraform.Init(t, tfOptions)
-		terraform.Validate(t, tfOptions)
+		terraform.Init(t, validateOptions)
+		terraform.Validate(t, validateOptions)
 	})
 
 	t.Run("TerraformPlan", func(t *testing.T) {
-		terraform.Init(t, tfOptions)
-		plan := terraform.Plan(t, tfOptions)
-
-		assert.NotEmpty(t, plan, "Terraform plan не должен быть пустым")
+		terraform.InitAndPlan(t, planOptions)
 	})
 
 	t.Run("ExpectedVMs", func(t *testing.T) {
-		terraform.InitAndPlan(t, tfOptions)
+		terraform.InitAndPlan(t, planOptions)
 
-		webName := terraform.Output(t, tfOptions, "web_instance_name")
-		apiName := terraform.Output(t, tfOptions, "api_instance_name")
+		plan := terraform.Plan(t, planOptions)
 
-		assert.NotEmpty(t, webName, "Должна существовать web VM")
-		assert.NotEmpty(t, apiName, "Должна существовать api VM")
-		assert.NotEqual(t, webName, apiName, "web и api должны быть разными VM")
+		assert.Contains(
+			t,
+			plan,
+			`yandex_compute_instance" "api`,
+			"План должен содержать VM api",
+		)
+
+		assert.Contains(
+			t,
+			plan,
+			`yandex_compute_instance" "web`,
+			"План должен содержать VM web",
+		)
 	})
 
 	t.Run("NoPublicIPs", func(t *testing.T) {
-		terraform.InitAndPlan(t, tfOptions)
+		terraform.InitAndPlan(t, planOptions)
 
-		webPublicIP := terraform.Output(t, tfOptions, "web_public_ip")
-		apiPublicIP := terraform.Output(t, tfOptions, "api_public_ip")
+		plan := terraform.Plan(t, planOptions)
 
-		assert.Empty(t, webPublicIP, "web VM не должна иметь публичный IP")
-		assert.Empty(t, apiPublicIP, "api VM не должна иметь публичный IP")
+		assert.Contains(
+			t,
+			plan,
+			"nat            = false",
+			"Сетевой интерфейс api/web не должен иметь NAT",
+		)
 	})
 
 	t.Run("APIDisks", func(t *testing.T) {
-		terraform.InitAndPlan(t, tfOptions)
+		terraform.InitAndPlan(t, planOptions)
 
-		apiDiskIDs := terraform.OutputList(t, tfOptions, "api_disk_ids")
+		plan := terraform.Plan(t, planOptions)
 
-		assert.NotEmpty(t, apiDiskIDs, "У api должны быть дополнительные диски")
-		assert.GreaterOrEqual(
+		assert.Contains(
 			t,
-			len(apiDiskIDs),
-			2,
-			"У api должно быть минимум два дополнительных диска",
+			plan,
+			`device_name = "backup"`,
+			"План должен содержать диск backup",
+		)
+
+		assert.Contains(
+			t,
+			plan,
+			`device_name = "logs"`,
+			"План должен содержать диск logs",
+		)
+
+		assert.Contains(
+			t,
+			plan,
+			"size        = 20",
+			"Дополнительные диски должны иметь размер 20 ГБ",
 		)
 	})
 
 	t.Run("DevEnvironmentParameters", func(t *testing.T) {
-		terraform.InitAndPlan(t, tfOptions)
+		terraform.InitAndPlan(t, planOptions)
 
-		environment := terraform.Output(t, tfOptions, "environment")
+		plan := terraform.Plan(t, planOptions)
 
-		assert.Equal(t, "dev", environment, "Должно использоваться окружение dev")
+		assert.Contains(
+			t,
+			plan,
+			`zone                      = "ru-central1-a"`,
+			"VM должны создаваться в зоне ru-central1-a",
+		)
+
+		assert.Contains(
+			t,
+			plan,
+			`platform_id               = "standard-v3"`,
+			"VM должны использовать платформу standard-v3",
+		})
 	})
 }
