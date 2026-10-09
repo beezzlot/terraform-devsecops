@@ -104,9 +104,15 @@ jobs:
       - name: Terraform validate
         run: terraform validate
 
+      - name: Terraform plan
+        run: terraform plan -var-file=terraform.tfvars.dev
+
       - name: Install Terratest dependencies
         working-directory: tests/terratest
-        run: go mod download
+        run: |
+          go mod tidy
+          go mod download
+          go mod verify
 
       - name: Run Terratest
         working-directory: tests/terratest
